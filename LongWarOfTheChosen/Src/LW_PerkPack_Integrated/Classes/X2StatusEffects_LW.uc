@@ -14,6 +14,9 @@ var config string HeavyDazedParticle_Name;
 var config name HeavyDazedSocket_Name;
 var config name HeavyDazedSocketsArray_Name;
 
+var config float CRIPPLED_MULTIPLY_MODIFIER;
+var config int CRIPPLED_DEFAULT_DURATION;
+
 static function X2Effect_HeavyDazed CreateHeavyDazedStatusEffect(int StunLevel, int Chance)
 {
 	local X2Effect_HeavyDazed DazedEffect;
@@ -141,4 +144,17 @@ static function DazedVisualizationRemoved(XComGameState VisualizeGameState, out 
 														  class'UIUtilities_Image'.const.UnitStatus_Stunned,
 														  eUIState_Good);
 	class'X2StatusEffects'.static.UpdateUnitFlag(ActionMetadata, VisualizeGameState.GetContext());
+}
+
+static function X2Effect_Persistent CreateCrippledStatusEffect(optional int NumTurns = 1)
+{
+	local X2Effect_PersistentStatChange Effect;
+
+	Effect = new class'X2Effect_PersistentStatChange';
+	Effect.EffectName = 'Crippled';
+	Effect.BuildPersistentEffect(NumTurns, false, true, false, eGameRule_PlayerTurnEnd);
+	Effect.SetDisplayInfo(ePerkBuff_Penalty, "Crippled", "Heavily reduces a unit's mobility", ""); 
+	Effect.AddPersistentStatChange(eStat_Mobility, default.CRIPPLED_MULTIPLY_MODIFIER, MODOP_Multiplication);
+
+	return Effect;
 }
