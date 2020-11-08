@@ -24,11 +24,50 @@ var config array<int> FactionAbilityCosts;
 
 var config float BaseAbilityCostModifier;
 
+var config int ScrollbarPositionX;
+
 // Position is the number by which we offset all ability indices.
 // 0 <= Position <= MaxPosition
 var int Position, MaxPosition;
 
 var int AdjustXOffset;
+
+simulated function ChangeSelectedColumn(int oldIndex, int newIndex)
+{
+	local int i, NewColumnAbilityIndex, NewColumnAbilities, OldColumnAbilityIndex;
+	local UIArmory_PromotionHeroColumn OldColumn, NewColumn;
+	
+	i = 0;
+	OldColumn = Columns[oldIndex];
+	NewColumn = Columns[newIndex];
+	NewColumnAbilities = NewColumn.AbilityIcons.Length;
+	
+	if (`ISCONTROLLERACTIVE && (OldColumn != none) && (NewColumn != none))
+	{
+		OldColumnAbilityIndex = OldColumn.m_iPanelIndex;
+		// KDM : When selecting a new column, we want to preserve the currently selected row whenever possible; this can not occur
+		// when the old column's selected row is below the total number of rows in the new column.
+		NewColumnAbilityIndex = (OldColumnAbilityIndex < NewColumnAbilities) ? OldColumnAbilityIndex : (NewColumnAbilities - 1);
+		
+		// KDM : We are only interested in rows with a visible ability icon; search for one in an upwards, looping, manner.
+		while ((!NewColumn.AbilityIcons[NewColumnAbilityIndex].bIsVisible) && (i < NewColumnAbilities))
+		{
+			NewColumnAbilityIndex--;
+			if (NewColumnAbilityIndex < 0)
+			{
+				NewColumnAbilityIndex = NewColumnAbilities - 1;
+			}
+
+			i++;
+		}
+
+		// KDM : When a column recieves focus, it selects the ability icon at m_iPanelIndex; therefore, we need to set this
+		// value before calling super.ChangeSelectedColumn().
+		NewColumn.m_iPanelIndex = NewColumnAbilityIndex;
+	}
+
+	super(UIArmory_PromotionHero).ChangeSelectedColumn(oldIndex, newIndex);
+}
 
 simulated function OnInit()
 {
@@ -86,10 +125,16 @@ simulated function InitPromotion(StateObjectReference UnitRef, optional bool bIn
 
 	PopulateData();
 
-	//Only set position and animate in the scrollbar once after data population. Prevents scrollbar flicker on scrolling.
-	if (HasBrigadierRank())
+	// Only set position and animate in the scrollbar once after data population. Prevents scrollbar flicker on scrolling.
+	if (default.ScrollbarPositionX > 0)
 	{
-		Scrollbar.SetPosition(-465, 310);
+		Scrollbar.SetPosition(default.ScrollbarPositionX, 310);
+	}
+	else if (HasBrigadierRank())
+	{
+		// KDM : The X position was originally set to -465; however, I am perplexed as to why, since the scrollbar was much too far to the right.
+		// In fact it was nearly always blocked by the soldier pawn.
+		Scrollbar.SetPosition(-475, 310);
 	}
 	else
 	{
@@ -421,6 +466,145 @@ simulated function RealizeScrollbar()
 	}
 }
 
+// KDM : UIArmory_Promotion --> UpdateNavHelp() has to be overridden, in order to change individual help item's placement, since
+// there is no way to remove individual components of the navigation help system.
+simulated function UpdateNavHelp()
+{
+	local int i;
+	local string PrevKey, NextKey;
+	local XComGameState_HeadquartersXCom XComHQ;
+	local XComGameState_Unit Unit;
+	local XGParamTag LocTag;
+	
+	Unit = XComGameState_Unit(`XCOMHISTORY.GetGameStateForObjectID(UnitReference.ObjectID));
+
+	if (!bIsFocused)
+	{
+		return;
+	}
+
+	NavHelp = `HQPRES.m_kAvengerHUD.NavHelp;
+
+	NavHelp.ClearButtonHelp();
+	
+	if (UIAfterAction(Movie.Stack.GetScreen(class'UIAfterAction')) != none)
+	{
+		NavHelp.AddBackButton(OnCancel);
+
+		if (UIArmory_PromotionItem(List.GetSelectedItem()).bEligibleForPromotion && `ISCONTROLLERACTIVE)
+		{
+			NavHelp.AddSelectNavHelp();
+		}
+
+		if (!`ISCONTROLLERACTIVE)
+		{
+			if (!XComGameState_Unit(`XCOMHISTORY.GetGameStateForObjectID(UnitReference.ObjectID)).ShowPromoteIcon())
+			{
+				NavHelp.AddContinueButton(OnCancel);
+			}
+		}
+		
+		if (class'XComGameState_HeadquartersXCom'.static.IsObjectiveCompleted('T0_M7_WelcomeToGeoscape'))
+		{
+			NavHelp.AddLeftHelp(m_strMakePosterTitle, class'UIUtilities_Input'.static.GetGamepadIconPrefix() $class'UIUtilities_Input'.const.ICON_X_SQUARE, MakePosterButton);
+		}
+
+		if (`ISCONTROLLERACTIVE)
+		{
+			if (!UIArmory_PromotionItem(List.GetSelectedItem()).bIsDisabled)
+			{
+				NavHelp.AddCenterHelp(m_strInfo, class'UIUtilities_Input'.static.GetGamepadIconPrefix() $class'UIUtilities_Input'.const.ICON_LSCLICK_L3);
+			}
+
+			if (IsAllowedToCycleSoldiers() && class'UIUtilities_Strategy'.static.HasSoldiersToCycleThrough(UnitReference, CanCycleTo))
+			{
+				NavHelp.AddCenterHelp(m_strTabNavHelp, class'UIUtilities_Input'.static.GetGamepadIconPrefix() $ class'UIUtilities_Input'.const.ICON_LBRB_L1R1); // bsg-jrebar (5/23/17): Removing inlined buttons
+			}
+
+			NavHelp.AddCenterHelp(m_strRotateNavHelp, class'UIUtilities_Input'.static.GetGamepadIconPrefix() $ class'UIUtilities_Input'.const.ICON_RSTICK); // bsg-jrebar (5/23/17): Removing inlined buttons
+		}
+	}
+	else
+	{
+		NavHelp.AddBackButton(OnCancel);
+		
+		if (UIArmory_PromotionItem(List.GetSelectedItem()).bEligibleForPromotion)
+		{
+			NavHelp.AddSelectNavHelp();
+		}
+
+		if (XComHQPresentationLayer(Movie.Pres) != none)
+		{
+			LocTag = XGParamTag(`XEXPANDCONTEXT.FindTag("XGParam"));
+			LocTag.StrValue0 = Movie.Pres.m_kKeybindingData.GetKeyStringForAction(PC.PlayerInput, eTBC_PrevUnit);
+			PrevKey = `XEXPAND.ExpandString(PrevSoldierKey);
+			LocTag.StrValue0 = Movie.Pres.m_kKeybindingData.GetKeyStringForAction(PC.PlayerInput, eTBC_NextUnit);
+			NextKey = `XEXPAND.ExpandString(NextSoldierKey);
+
+			if (class'XComGameState_HeadquartersXCom'.static.GetObjectiveStatus('T0_M7_WelcomeToGeoscape') != eObjectiveState_InProgress &&
+				RemoveMenuEvent == '' && NavigationBackEvent == '' && !`ScreenStack.IsInStack(class'UISquadSelect'))
+			{
+				NavHelp.AddGeoscapeButton();
+			}
+
+			if (Movie.IsMouseActive() && IsAllowedToCycleSoldiers() && class'UIUtilities_Strategy'.static.HasSoldiersToCycleThrough(UnitReference, CanCycleTo))
+			{
+				NavHelp.SetButtonType("XComButtonIconPC");
+				i = eButtonIconPC_Prev_Soldier;
+				NavHelp.AddCenterHelp( string(i), "", PrevSoldier, false, PrevKey);
+				i = eButtonIconPC_Next_Soldier; 
+				NavHelp.AddCenterHelp( string(i), "", NextSoldier, false, NextKey);
+				NavHelp.SetButtonType("");
+			}
+		}
+
+		if (class'XComGameState_HeadquartersXCom'.static.IsObjectiveCompleted('T0_M7_WelcomeToGeoscape'))
+		{
+			if (`ISCONTROLLERACTIVE)
+			{
+				NavHelp.AddLeftHelp(m_strMakePosterTitle, class'UIUtilities_Input'.static.GetGamepadIconPrefix() $class'UIUtilities_Input'.const.ICON_X_SQUARE, MakePosterButton);
+			}
+			else
+			{
+				NavHelp.AddLeftHelp(m_strMakePosterTitle, , MakePosterButton);
+			}
+		}
+
+		if (`ISCONTROLLERACTIVE)
+		{
+			if (!UIArmory_PromotionItem(List.GetSelectedItem()).bIsDisabled)
+			{
+				// KDM : Add the 'show abilities' tip to the left help panel so it doesn't overlap with the cycle soldiers tip.
+				NavHelp.AddLeftHelp(m_strInfo, class'UIUtilities_Input'.static.GetGamepadIconPrefix() $class'UIUtilities_Input'.const.ICON_LSCLICK_L3);
+			}
+
+			if (IsAllowedToCycleSoldiers() && class'UIUtilities_Strategy'.static.HasSoldiersToCycleThrough(UnitReference, CanCycleTo))
+			{
+				NavHelp.AddCenterHelp(m_strTabNavHelp, class'UIUtilities_Input'.static.GetGamepadIconPrefix() $ class'UIUtilities_Input'.const.ICON_LBRB_L1R1); // bsg-jrebar (5/23/17): Removing inlined buttons
+			}
+
+			NavHelp.AddCenterHelp(m_strRotateNavHelp, class'UIUtilities_Input'.static.GetGamepadIconPrefix() $ class'UIUtilities_Input'.const.ICON_RSTICK); // bsg-jrebar (5/23/17): Removing inlined buttons
+		}
+
+		XComHQ = class'UIUtilities_Strategy'.static.GetXComHQ();
+		
+		if (XComHQ.HasFacilityByName('RecoveryCenter') && IsAllowedToCycleSoldiers() && !`ScreenStack.IsInStack(class'UIFacility_TrainingCenter')
+			&& !`ScreenStack.IsInStack(class'UISquadSelect') && !`ScreenStack.IsInStack(class'UIAfterAction') && Unit.GetSoldierClassTemplate().bAllowAWCAbilities)
+		{
+			if (`ISCONTROLLERACTIVE)
+			{ 
+				NavHelp.AddRightHelp(m_strHotlinkToRecovery, class'UIUtilities_Input'.consT.ICON_BACK_SELECT);
+			}
+			else
+			{
+				NavHelp.AddRightHelp(m_strHotlinkToRecovery, , JumpToRecoveryFacility);
+			}
+		}
+
+		NavHelp.Show();
+	}
+}
+
 simulated function bool OnUnrealCommand(int cmd, int arg)
 {
 	local bool bHandled;
@@ -552,32 +736,28 @@ function bool CanPurchaseAbility(int Rank, int Branch, name AbilityName)
 	AbilityRanks = GetAbilitiesPerRank(UnitState);
 
 	//Emulate Resistance Hero behaviour
-	if(AbilityRanks == 0)
+	if (AbilityRanks == 0)
 	{				
 		return (Rank < UnitState.GetRank() && CanAffordAbility(Rank, Branch) && UnitState.MeetsAbilityPrerequisites(AbilityName));
 	}
 
-	//Don't allow non hero units to purchase abilities with AP without a training center
-	if(UnitState.HasPurchasedPerkAtRank(Rank) && !UnitState.IsResistanceHero() && !CanSpendAP())
-	{
-		return false;
-	}
-		
-	//Don't allow non hero units to purchase abilities on the xcom perk row before getting a rankup perk
-	if(!UnitState.HasPurchasedPerkAtRank(Rank) && !UnitState.IsResistanceHero() && Branch >= AbilityRanks )
+	// Don't allow units to purchase non-class abilities or multiple class abilities at
+	// a give rank with AP without a training center
+	if ((Branch >= AbilityRanks || UnitState.HasPurchasedPerkAtRank(Rank, AbilityRanks)) && !CanSpendAP())
 	{
 		return false;
 	}
 
 	// LWOTC: Don't allow purchase of other class abilities at same rank as an already picked one (unless second wave option enabled)
-	if (!UnitState.IsResistanceHero() && !`SecondWaveEnabled('AllowSameRankAbilities') && UnitState.HasPurchasedPerkAtRank(Rank) && Branch < AbilityRanks)
+	if (!UnitState.IsResistanceHero() && !`SecondWaveEnabled('AllowSameRankAbilities') && UnitState.HasPurchasedPerkAtRank(Rank, AbilityRanks) && Branch < AbilityRanks)
 	{
 		return false;
 	}
 	// End
 
 	//Normal behaviour
-	return (Rank < UnitState.GetRank() && CanAffordAbility(Rank, Branch) && UnitState.MeetsAbilityPrerequisites(AbilityName));
+	return ((Rank < UnitState.GetRank() || Branch >= AbilityRanks) &&
+			CanAffordAbility(Rank, Branch) && UnitState.MeetsAbilityPrerequisites(AbilityName));
 }
 
 function int GetAbilityPointCost(int Rank, int Branch)
@@ -608,7 +788,7 @@ function int GetAbilityPointCost(int Rank, int Branch)
 
 	if (!UnitState.IsResistanceHero() && AbilityRanks != 0 && Branch < AbilityRanks)
 	{
-		if (!UnitState.HasPurchasedPerkAtRank(Rank))
+		if (!UnitState.HasPurchasedPerkAtRank(Rank, AbilityRanks))
 		{
 			// If this is a base game soldier with a promotion available, ability costs nothing since it would be their
 			// free promotion ability if they "bought" it through the Armory
@@ -632,7 +812,7 @@ function int GetAbilityPointCost(int Rank, int Branch)
 		AbilityCost = FactionAbilityCosts[Rank];
 	}
 
-	if (UnitState.HasPurchasedPerkAtRank(Rank) && Branch < AbilityRanks)
+	if (UnitState.HasPurchasedPerkAtRank(Rank, AbilityRanks) && Branch < AbilityRanks)
 	{
 		// Increase cost of this perk by current ability cost modifier
 		UnitState.GetUnitValue('LWOTC_AbilityCostModifier', AbilityCostModifier);
@@ -796,7 +976,7 @@ simulated function ConfirmAbilityCallbackWithTracking(Name Action)
 	local XComGameStateContext_ChangeContainer ChangeContainer;
 	local UnitValue AbilityCostModifier;
 
-	if(Action == 'eUIAction_Accept')
+	if (Action == 'eUIAction_Accept')
 	{
 		History = `XCOMHISTORY;
 		ChangeContainer = class'XComGameStateContext_ChangeContainer'.static.CreateEmptyChangeContainer("Soldier Promotion");
@@ -811,26 +991,35 @@ simulated function ConfirmAbilityCallbackWithTracking(Name Action)
 			AbilityCostModifier.fValue = 1.0 + BaseAbilityCostModifier;
 		}
 
-		if (UpdatedUnit.HasPurchasedPerkAtRank(PendingRank) && PendingBranch < GetAbilitiesPerRank(UpdatedUnit))
+		if (UpdatedUnit.HasPurchasedPerkAtRank(PendingRank, GetAbilitiesPerRank(UpdatedUnit)) && PendingBranch < GetAbilitiesPerRank(UpdatedUnit))
 		{
 			UpdatedUnit.SetUnitFloatValue('LWOTC_AbilityCostModifier', AbilityCostModifier.fValue + BaseAbilityCostModifier, eCleanup_Never);
 		}
 
 		bSuccess = UpdatedUnit.BuySoldierProgressionAbility(UpdateState, PendingRank, PendingBranch, GetAbilityPointCost(PendingRank, PendingBranch));
 
-		if(bSuccess)
+		if (bSuccess)
 		{
 			`GAMERULES.SubmitGameState(UpdateState);
 
 			Header.PopulateData();
 			PopulateData();
+
+			// KDM : After an ability has been selected and accepted, all of the promotion data has to be re-populated and the selected ability's
+			// focus is lost. Therefore, we need to give the selected ability its focus back.
+			if (`ISCONTROLLERACTIVE)
+			{
+				Columns[m_iCurrentlySelectedColumn].OnReceiveFocus();
+			}
 		}
 		else
+		{
 			History.CleanupPendingGameState(UpdateState);
+		}
 
 		Movie.Pres.PlayUISound(eSUISound_SoldierPromotion);
 	}
-	else 	// if we got here it means we were going to upgrade an ability, but then we decided to cancel
+	else // If we got here it means we were going to upgrade an ability, but then we decided to cancel
 	{
 		Movie.Pres.PlayUISound(eSUISound_MenuClickNegative);
 	}
@@ -1185,7 +1374,6 @@ simulated function AddChildTweenBetween(string ChildPath, String Prop, float Sta
 
 	MC.EndOp();
 }
-
 
 //HL Helper methods to check installed Hl version and get class icon, name and rankicon through HL or do a fallback ot default if HL is not installed
 

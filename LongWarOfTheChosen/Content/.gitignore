@@ -5,6 +5,8 @@
 *.bk2
 /*/*.txt
 !/LW_FactionBalance/*
+!/LW_PerkPack_Integrated/*
+!/LW_Toolbox_Integrated/*
 !/BaseGameMissionAssets/README.txt
 !/Missions/*
 !/Parcels/*
@@ -13,3 +15,7 @@
 !/LW_Heavy_Dazed_Tile.upk
 !/LW_Psi*
 !/LW_Lost_Brute.upk
+!/UILibrary_*
+!/BstarsPerkPack_Icons.upk
+!/LW_StrikeRifle.upk
+!/WP_BeamGrenadeLauncher.upk

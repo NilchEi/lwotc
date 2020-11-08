@@ -28,22 +28,24 @@ static function UpdateCovertActions(X2StrategyElementTemplate Template, int Diff
 	
 	switch (CATemplate.DataName)
 	{
+		case 'CovertAction_SuperiorWeaponUpgrade':
+		case 'CovertAction_SuperiorPCS':
+			CaTemplate.RequiredFactionInfluence = eFactionInfluence_Minimal;
 		case 'CovertAction_GatherSupplies':
 		case 'CovertAction_GatherIntel':
 		case 'CovertAction_ImproveComInt':
 		case 'CovertAction_FormSoldierBond':
-		case 'CovertAction_SharedAbilityPoints':
-		case 'CovertAction_SuperiorWeaponUpgrade':
-		case 'CovertAction_SuperiorPCS':
 		case 'CovertAction_AlienLoot':
 			ConfigureEasyCovertAction(CATemplate);
 			break;
 		case 'CovertAction_RecruitScientist':
 		case 'CovertAction_RecruitEngineer':
+			CaTemplate.RequiredFactionInfluence = eFactionInfluence_Respected;
 		case 'CovertAction_EnemyCorpses':
 		case 'CovertAction_CancelChosenActivity':
 		case 'CovertAction_DelayChosen':
 		case 'CovertAction_ResistanceContact':
+		case 'CovertAction_SharedAbilityPoints':
 			ConfigureModerateCovertAction(CATemplate);
 			break;
 		case 'CovertAction_RecruitExtraFactionSoldier':
